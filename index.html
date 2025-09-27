@@ -33,6 +33,14 @@
   .btn-green{background:#0f1a13;border-color:#145431;color:#b7ffd8}
   .btn-ghost{background:#0f1117}
 
+  /* kleine Icon-Buttons (z. B. Lösch-Icon) */
+  .icon-btn{
+    width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--line2);background:#0f1117;border-radius:8px;
+    color:#a9b6ce;cursor:pointer
+  }
+  .icon-btn:hover{border-color:#3b4358;color:#d5e2ff}
+
   .kpis{display:grid;gap:10px;margin-top:10px}
   .kpi{background:#0f1117;border:1px solid var(--line2);border-radius:12px;padding:12px}
   .kpi .label{font-size:12px;color:var(--muted)}
@@ -64,7 +72,7 @@
   .prog > span{display:block;height:100%;background:linear-gradient(90deg,#16a34a,#22c55e)}
 
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
-  .right{margin-left:auto}
+  .right{display:flex;gap:8px;align-items:center;margin-left:auto}
 
   .empty{color:#9fb0c9;font-size:14px;margin:6px 0 12px}
   .pac-container{font-family:Inter,system-ui;font-size:14px;border-radius:10px;overflow:hidden}
@@ -73,6 +81,7 @@
   @media (max-width:420px){
     button{height:40px;padding:0 10px}
     .input input{height:40px}
+    .icon-btn{width:32px;height:32px}
   }
 </style>
 </head>
@@ -118,21 +127,19 @@
 <script>
 /* ===================== CONFIG ===================== */
 // ⚠️ Für Produktion die Keys in Vercel als Environment Variables setzen.
-const GOOGLE_KEY           = 'AIzaSyAlqOEqk3OkF1klDuMutYdePgzY_2DDfgE';            // Google Places
+const GOOGLE_KEY           = 'AIzaSyAlqOEqk3OkF1klDuMutYdePgzY_2DDfgE';
 const SUPABASE_URL         = 'https://sbptnpinqqddpbmnvzwl.supabase.co';
 const SUPABASE_ANON_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNicHRucGlucXFkZHBibW52endsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5NjQ3MTQsImV4cCI6MjA3NDU0MDcxNH0.XIS3ILeprGc70-wmPruEGniF2-MrCDm1ixkg-LrPBsQ';
 const REVIEW_API           = 'https://sternblitz-review-simulator-cwnz.vercel.app/api/reviews';
-const TABLE                = 'orders_app';                 // JSON-Tabelle (id uuid, data jsonb, created_at, updated_at)
-const STORAGE_FALLBACK_KEY = 'sb_orders_v3_backup';        // lokaler Notfall-Backup
-
-// Optional: Realtime live updates (Supabase: Table -> "Enable Realtime")
-const ENABLE_REALTIME = true;
+const TABLE                = 'orders_app';
+const STORAGE_FALLBACK_KEY = 'sb_orders_v3_backup';
+const ENABLE_REALTIME      = true;
 
 /* ============== Supabase Client ============== */
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ===================== STATE ===================== */
-let orders = []; // Array der Order-Objekte inklusive db_id (Zeilen-ID)
+let orders = []; // mit db_id (Zeilen-ID)
 const fmt0 = n => Number(n||0).toLocaleString('de-DE');
 const fmt1 = n => Number(n||0).toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1});
 const nowISO = () => new Date().toISOString();
@@ -205,14 +212,14 @@ function synthReviews(name,address){
 async function fetchReviews(name,address){
   try{
     const url = `${'https://sternblitz-review-simulator-cwnz.vercel.app/api/reviews'}?name=${encodeURIComponent(name)}&address=${encodeURIComponent(address||'')}`;
-    const r = await fetch(url/* ,{ signal:AbortSignal.timeout?.(12000) } */);
+    const r = await fetch(url);
     if(!r.ok) throw new Error('HTTP '+r.status);
     const data = await r.json();
     if (!data || typeof data.totalReviews!=='number') throw new Error('Bad payload');
     data.__demo = false;
     return data;
   }catch(e){
-    return synthReviews(name,address); // fallback -> immer lauffähig
+    return synthReviews(name,address);
   }
 }
 
@@ -243,6 +250,7 @@ function cardHTML(o, section){
       </div>
       <div class="right">
         <span class="pill ${statusClass}">${o.status.toUpperCase()}</span>
+        <button class="icon-btn" title="Diesen Auftrag löschen" onclick="deleteOne('${o.db_id}')">🗑</button>
       </div>
     </div>
 
@@ -363,12 +371,26 @@ async function markDone(db_id){ const o=orders.find(x=>x.db_id===db_id); if(!o) 
 async function markPaid(db_id){ const o=orders.find(x=>x.db_id===db_id); if(!o) return; o.status='paid'; await dbUpdate(o); saveBackup(); render(); }
 async function markActive(db_id){ const o=orders.find(x=>x.db_id===db_id); if(!o) return; o.status='active'; await dbUpdate(o); saveBackup(); render(); }
 
+/* 🗑 Einzelnen Auftrag löschen */
+async function deleteOne(db_id){
+  const o = orders.find(x=>x.db_id===db_id);
+  const name = o?.client_name ? `„${o.client_name}“` : 'diesen Auftrag';
+  if(!confirm(`Wirklich ${name} löschen?`)) return;
+  try{
+    await dbDelete(db_id);
+    orders = orders.filter(x=>x.db_id!==db_id);
+    saveBackup();
+    render();
+  }catch(e){
+    alert('Löschen fehlgeschlagen: ' + (e?.message||e));
+  }
+}
+
 /* ================== UI HOOKS ================== */
 document.getElementById('refreshAll').addEventListener('click', refreshAll);
 document.getElementById('clearAll').addEventListener('click', async ()=>{
   if(!confirm('Wirklich alle Orders in der Cloud löschen?')) return;
   try{
-    // Schnelllöschung: alle ≠ dummy
     await supa.from(TABLE).delete().neq('id','00000000-0000-0000-0000-000000000000');
   }catch(e){ alert('Server-Löschung fehlgeschlagen: ' + (e?.message||e)); }
   orders=[]; saveBackup(); render();
@@ -404,25 +426,20 @@ async function loadFromCloud(){
 
 (async function boot(){
   try{
-    await loadFromCloud(); // Cloud-Daten holen
+    await loadFromCloud();
   }catch(e){
-    // Fallback: lokal lesen, wenn Cloud nicht geht
     loadBackup();
     console.warn('Supabase nicht erreichbar, lade lokalen Backup:', e?.message||e);
     render();
   }
 
-  // Optional: Realtime live updates (INSERT/UPDATE/DELETE)
   if (ENABLE_REALTIME){
     try{
       const channel = supa.channel('orders_app_changes');
       channel
         .on('postgres_changes',
             { event: '*', schema: 'public', table: TABLE },
-            async (payload) => {
-              // Einfachheit: immer komplette Liste neu laden – robust & ausreichend schnell
-              try { await loadFromCloud(); } catch(e){ /* ignore */ }
-            })
+            async () => { try { await loadFromCloud(); } catch{} })
         .subscribe();
     }catch(e){
       console.warn('Realtime konnte nicht abonniert werden:', e?.message||e);
